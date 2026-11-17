@@ -3,6 +3,53 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+/* ============================================================
+ * COS 资产镜像：重资源（geo 模型 / three.js / 图片）优先走
+ * 国内可达的腾讯云 COS，本站相对路径自动作为回退。
+ * 站点本身部署在 COS 上时（同源）自动退化为纯相对路径。
+ * ============================================================ */
+window.COS_MIRROR = 'https://portfolio2026-1534828567.cos.ap-guangzhou.myqcloud.com'; /* 例：'https://bucket.cos.ap-guangzhou.myqcloud.com' */
+window.ASSET_CDN = (window.COS_MIRROR && location.origin !== window.COS_MIRROR)
+  ? window.COS_MIRROR : '';
+window.cdnize = function (p) {
+  if (!window.ASSET_CDN || !p || typeof p !== 'string') return p;
+  if (/^(https?:|data:|blob:)/i.test(p)) return p;
+  return window.ASSET_CDN + '/' + p.replace(/^\.?\//, '');
+};
+(function () {
+  if (!window.ASSET_CDN) return;
+  var rw = function (el) {
+    if (el.tagName !== 'IMG' || el.getAttribute('data-cdn') === '1') return;
+    var s = el.getAttribute('src');
+    if (!s || s.indexOf('assets/') !== 0) return;
+    el.setAttribute('data-cdn', '1');
+    el.addEventListener('error', function () {
+      if (el.getAttribute('data-fb') !== '1') {
+        el.setAttribute('data-fb', '1'); el.src = s; /* 镜像失败回退本站 */
+      }
+    });
+    el.src = window.cdnize(s);
+  };
+  var scan = function (root) {
+    if (root.nodeType !== 1) return;
+    if (root.tagName === 'IMG') rw(root);
+    if (root.querySelectorAll) {
+      var q = root.querySelectorAll('img');
+      for (var k = 0; k < q.length; k++) rw(q[k]);
+    }
+  };
+  new MutationObserver(function (muts) {
+    for (var i = 0; i < muts.length; i++) {
+      var added = muts[i].addedNodes;
+      for (var j = 0; j < added.length; j++) scan(added[j]);
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('DOMContentLoaded', function () {
+    scan({ nodeType: 1, querySelectorAll: function (s) { return document.querySelectorAll(s); } });
+  });
+})();
+</script>
 <title>Sole 1.6 — Design World</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -293,6 +340,16 @@ button { font-family:inherit; color:inherit; background:none; border:0; cursor:p
    ================================================================ */
 @media (max-width:900px), (max-aspect-ratio:1/1) {
   .topnav { gap:16px }
+  /* 窄屏：9 项导航放不下 → 改为横向滑动条（无滚动条 + 右缘渐隐提示可继续滑） */
+  .topbar { gap:14px }
+  .topnav {
+    flex:1; min-width:0; overflow-x:auto; overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    margin-right:calc(var(--pad-x) * -1); padding-right:var(--pad-x);
+    -webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 28px),transparent);
+    mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 28px),transparent);
+  }
+  .topnav::-webkit-scrollbar { display:none }
   .topnav a, .topnav span { font-size:13px }
   .hero-copy { bottom:clamp(150px,20vh,220px) }
   .series-title { font-size:clamp(84px,21vw,200px); top:46% }
@@ -2009,33 +2066,47 @@ window.GEO_SRC = {
   drape_3: ['assets/geo/drape_s3.js'],
   drape_4: ['assets/geo/drape_s4.js']
 };
+/* 有镜像时，每个模型变成「镜像优先 → 本站回退」双源链 */
+(function () {
+  if (!window.ASSET_CDN) return;
+  Object.keys(window.GEO_SRC).forEach(function (k) {
+    window.GEO_SRC[k] = window.GEO_SRC[k].reduce(function (acc, s) {
+      if (s.indexOf('assets/') === 0) { acc.push(window.cdnize(s)); acc.push(s); }
+      else acc.push(s);
+      return acc;
+    }, []);
+  });
+})();
 window.GEO_READY = {};
 window.GEO_STATE = {};
 window.loadGeo = function (key, onPct) {
   if (window.GEO_READY[key]) return Promise.resolve();
   if (window.GEO_STATE[key]) return window.GEO_STATE[key];
   var list = window.GEO_SRC[key] || [];
-  var done = 0;
-  var p = list.reduce(function (chain, src) {
-    return chain.then(function () {
-      return new Promise(function (res, rej) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', src, true);
-        xhr.responseType = 'text';
-        xhr.onprogress = function (e) {
-          if (onPct && e.lengthComputable) onPct((done + e.loaded) / (e.total * list.length));
-        };
-        xhr.onload = function () {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try { (new Function(xhr.response))(); done++; res(); }
-            catch (err) { rej(err); }
-          } else { rej(new Error(src + ' ' + xhr.status)); }
-        };
-        xhr.onerror = function () { rej(new Error('network')); };
-        xhr.send();
-      });
+  function fetchOne(src, i) {
+    return new Promise(function (res, rej) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', src, true);
+      xhr.responseType = 'text';
+      xhr.onprogress = function (e) {
+        if (onPct && e.lengthComputable) onPct((i + e.loaded / e.total) / list.length);
+      };
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { (new Function(xhr.response))(); res(); }
+          catch (err) { rej(err); }
+        } else { rej(new Error(src + ' ' + xhr.status)); }
+      };
+      xhr.onerror = function () { rej(new Error('network ' + src)); };
+      xhr.send();
     });
-  }, Promise.resolve());
+  }
+  /* 逐个源尝试：镜像失败 → 本站回退；全部失败才报错 */
+  function tryNext(i) {
+    if (i >= list.length) return Promise.reject(new Error('all sources failed: ' + key));
+    return fetchOne(list[i], i).catch(function () { return tryNext(i + 1); });
+  }
+  var p = tryNext(0);
   window.GEO_STATE[key] = p.then(function () {
     window.GEO_READY[key] = true;
   });
@@ -2044,8 +2115,13 @@ window.loadGeo = function (key, onPct) {
 };
 </script>
 <script type="module">
-import * as THREE from './assets/three/three.module.js';
-import { RoomEnvironment } from './assets/three/addons/environments/RoomEnvironment.js';
+/* three.js 走镜像加载，镜像失败自动回退本站相对路径 */
+const THREE = await (window.ASSET_CDN
+  ? import(window.cdnize('./assets/three/three.module.js')).catch(() => import('./assets/three/three.module.js'))
+  : import('./assets/three/three.module.js'));
+const { RoomEnvironment } = await (window.ASSET_CDN
+  ? import(window.cdnize('./assets/three/addons/environments/RoomEnvironment.js')).catch(() => import('./assets/three/addons/environments/RoomEnvironment.js'))
+  : import('./assets/three/addons/environments/RoomEnvironment.js'));
 
 /* =============================================================
  * Design World — 多系列 3D 展示站
@@ -3717,13 +3793,21 @@ function initSeriesBgImage(n) {
   const pic = document.createElement('picture');
   const src = document.createElement('source');
   src.media = '(max-aspect-ratio:1/1)';
-  src.srcset = `assets/bg/series${n}-p.webp`;
+  src.srcset = window.cdnize(`assets/bg/series${n}-p.webp`);
   const img = document.createElement('img');
   img.className = 'sbg-img';
   img.alt = '';
   img.decoding = 'async';
   img.fetchPriority = 'high';
-  img.src = `assets/bg/series${n}-d.webp`;
+  const relD = `assets/bg/series${n}-d.webp`;
+  img.src = window.cdnize(relD);
+  if (window.ASSET_CDN) img.addEventListener('error', function () {
+    if (img.getAttribute('data-fb') !== '1') { img.setAttribute('data-fb', '1'); img.src = relD; }
+  });
+  const relP = `assets/bg/series${n}-p.webp`;
+  if (window.ASSET_CDN) src.addEventListener('error', function () {
+    if (src.getAttribute('data-fb') !== '1') { src.setAttribute('data-fb', '1'); src.srcset = relP; }
+  });
   pic.appendChild(src);
   pic.appendChild(img);
   seriesBg.appendChild(pic);
@@ -4525,6 +4609,21 @@ function applyRoute() {
     else if (route.page === 'series' || route.page === 'style') cur = nav === `series-${route.series}`;
     a.classList.toggle('current', cur);
   });
+
+  /* 窄屏可滑动导航：当前项自动滑到可视区中间（无溢出时不动，桌面零影响）。
+     注意时序：自定义字体加载会改变导航项宽度，fonts.ready 后需重新对位 */
+  const navToCurrent = () => {
+    const curLink = navLinks.find((a) => a.classList.contains('current'));
+    const nav = curLink && curLink.closest('.topnav');
+    if (!nav || nav.scrollWidth <= nav.clientWidth + 2) return;
+    const c = curLink.getBoundingClientRect(), n = nav.getBoundingClientRect();
+    nav.scrollTo({
+      left: Math.max(0, nav.scrollLeft + c.left - n.left - (nav.clientWidth - c.width) / 2),
+      behavior: 'smooth'
+    });
+  };
+  navToCurrent();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(navToCurrent);
 
   if (route.page === 'home') {
     document.title = 'Design World — Explore New Ideas';
