@@ -681,9 +681,8 @@ body[data-series="5"] .s5-board {
   position:absolute; top:14px; left:14px; z-index:2;
   font-size:12px; font-weight:600; letter-spacing:.18em;
   color:rgba(255,255,255,.95);
-  background:rgba(0,0,0,.55);
+  background:rgba(0,0,0,.66); /* 原 .55+backdrop-blur：毛玻璃在多图页滚动时每帧重采样模糊，是移动端卡顿主因 */
   padding:6px 12px 5px 14px; border-radius:2px;
-  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
   pointer-events:none;
 }
 
@@ -947,9 +946,8 @@ body[data-series="7"] .s7-board {
   position:absolute; top:14px; left:14px; z-index:2;
   font-size:12px; font-weight:600; letter-spacing:.18em;
   color:rgba(255,255,255,.95);
-  background:rgba(0,0,0,.55);
+  background:rgba(0,0,0,.66); /* 同 s5-tag：去掉 backdrop-blur 保滚动流畅 */
   padding:6px 12px 5px 14px; border-radius:2px;
-  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
   pointer-events:none; white-space:nowrap;
 }
 
